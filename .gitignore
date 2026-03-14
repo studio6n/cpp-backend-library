@@ -1,41 +1,78 @@
-# Prerequisites
-*.d
+# ============================================================
+# VS Code
+# ============================================================
+.vscode/*
+!.vscode/c_cpp_properties.json
 
-# Compiled Object files
-*.slo
-*.lo
+# ============================================================
+# Build Directories
+# ============================================================
+build/
+out/
+bin/
+lib/
+
+# ============================================================
+# CMake
+# ============================================================
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+cmake_install.cmake
+CTestTestfile.cmake
+CPackConfig.cmake
+CPackSourceConfig.cmake
+_deps/
+*.cmake
+!CMakeLists.txt
+!CMakePresets.json
+
+# ============================================================
+# Compiled Output
+# ============================================================
 *.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
 *.a
-*.lib
-
-# Executables
-*.exe
+*.so
+*.so.*
 *.out
-*.app
+*.elf
+*.exe
 
-# debug information files
-*.dwo
+# ============================================================
+# Debug / Profiling
+# ============================================================
+*.dSYM/
+*.su
+*.idb
+*.pdb
+gmon.out
+*.gcno
+*.gcda
+*.gcov
+
+# ============================================================
+# Package Managers
+# ============================================================
+# Conan
+.conan/
+conan.lock
+conanbuildinfo.*
+conaninfo.txt
+graph_info.json
+
+# vcpkg
+vcpkg_installed/
+
+# ============================================================
+# Clangd / IntelliSense
+# ============================================================
+.cache/
+compile_commands.json
+
+# ============================================================
+# OS
+# ============================================================
+.DS_Store
+Thumbs.db
+*~
+.directory

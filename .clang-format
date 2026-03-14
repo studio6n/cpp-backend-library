@@ -1,0 +1,44 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+BreakBeforeBraces: Attach
+
+NamespaceIndentation: All
+FixNamespaceComments: false
+
+# Keep your custom stream/log formatting stable (less collapsing)
+AlignOperands: false
+BreakBeforeBinaryOperators: None
+PenaltyBreakFirstLessLess: 0
+
+# ---- Class access indentation ----
+IndentAccessModifiers: false
+AccessModifierOffset: 0
+
+# ---- Pointer / reference formatting ----
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Parameter wrapping + indentation:
+# - First parameter stays on same line as '(' when possible
+# - When it wraps, following params align under the first param
+AlignAfterOpenBracket: Align
+BinPackParameters: false
+
+# (Optional but usually consistent with the above for function calls too)
+BinPackArguments: false
+
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+
+# ---- Constructor initializer list formatting ----
+# Put ':' / ',' at the start of each line, and force one initializer per line
+BreakConstructorInitializers: BeforeComma
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+PackConstructorInitializers: Never
+
+ColumnLimit: 100
