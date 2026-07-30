@@ -4,33 +4,54 @@ namespace impetus {
     namespace poll {
         /**
          * @brief
-         * Base class for all reactor subscribers.
+         * Abstract base class for all epoll reactor subscribers.
          *
-         * A subscriber receives I/O callbacks from the reactor for its bound file descriptor.
-         * Lifetime remains owned by the library user.
+         * A subscriber receives I/O callbacks from the reactor for its bound file
+         * descriptor. Lifetime is owned by the caller — the reactor holds a non-owning
+         * pointer.
          */
         class EventPollSubscriber {
             public:
             /**
              * @brief
-             * Standard invalid file descriptor value.
+             * Sentinel value for an invalid file descriptor.
              */
             static constexpr int K_INVALID_FD = -1;
 
+            /**
+             * @brief
+             * Copy construction is disabled.
+             */
             EventPollSubscriber(const EventPollSubscriber&) = delete;
+
+            /**
+             * @brief
+             * Copy assignment is disabled.
+             */
             EventPollSubscriber& operator=(const EventPollSubscriber&) = delete;
+
+            /**
+             * @brief
+             * Move construction is disabled.
+             */
             EventPollSubscriber(EventPollSubscriber&&) = delete;
+
+            /**
+             * @brief
+             * Move assignment is disabled.
+             */
             EventPollSubscriber& operator=(EventPollSubscriber&&) = delete;
 
+            /**
+             * @brief
+             * Default destructor.
+             */
             virtual ~EventPollSubscriber() = default;
 
             public:
             /**
              * @brief
-             * Retrieves the subscriber file descriptor.
-             *
-             * @return
-             * Bound file descriptor.
+             * Returns the file descriptor bound to this subscriber.
              */
             [[nodiscard]]
             int fd() const noexcept {
@@ -39,10 +60,7 @@ namespace impetus {
 
             /**
              * @brief
-             * Checks whether the subscriber holds a valid file descriptor.
-             *
-             * @return
-             * TRUE if the file descriptor is valid, FALSE otherwise.
+             * Returns true if the bound file descriptor is valid.
              */
             [[nodiscard]]
             bool has_valid_fd() const noexcept {
@@ -51,35 +69,36 @@ namespace impetus {
 
             /**
              * @brief
-             * Called when the file descriptor becomes readable.
+             * Called by the reactor when the file descriptor becomes readable.
              */
             virtual void on_read() noexcept {
             }
 
             /**
              * @brief
-             * Called when the file descriptor becomes writable.
+             * Called by the reactor when the file descriptor becomes writable.
              */
             virtual void on_write() noexcept {
             }
 
             /**
              * @brief
-             * Called after the subscriber has been attached successfully.
+             * Called after the subscriber has been successfully attached to the reactor.
              */
             virtual void on_attached() noexcept {
             }
 
             /**
              * @brief
-             * Called after the subscriber has been fully detached.
+             * Called after the subscriber has been fully detached from the reactor.
              */
             virtual void on_detached() noexcept {
             }
 
             /**
              * @brief
-             * Called when the reactor detects an error or hangup event.
+             * Called when the reactor detects an error or hangup on the file descriptor.
+             * Must be implemented by all subclasses.
              */
             virtual void on_error() noexcept = 0;
 
@@ -89,7 +108,7 @@ namespace impetus {
              * Constructs the subscriber with a file descriptor.
              *
              * @param fd
-             * File descriptor bound to the subscriber.
+             * File descriptor to bind to this subscriber.
              */
             explicit EventPollSubscriber(int fd) noexcept
                 : fd_(fd) {
@@ -97,7 +116,7 @@ namespace impetus {
 
             /**
              * @brief
-             * Marks the subscriber file descriptor as invalid.
+             * Marks the file descriptor as invalid. Call after closing it.
              */
             void invalidate_fd() noexcept {
                 fd_ = K_INVALID_FD;
@@ -106,7 +125,7 @@ namespace impetus {
             private:
             /**
              * @brief
-             * The file descriptor bound to this subscriber.
+             * File descriptor bound to this subscriber.
              */
             int fd_ = K_INVALID_FD;
         };

@@ -1,44 +1,98 @@
 BasedOnStyle: LLVM
-IndentWidth: 4
-TabWidth: 4
+Language: Cpp
+Standard: c++20
+
+# Indentation
 UseTab: Never
-BreakBeforeBraces: Attach
-
+TabWidth: 4
+IndentWidth: 4
 NamespaceIndentation: All
-FixNamespaceComments: false
-
-# Keep your custom stream/log formatting stable (less collapsing)
-AlignOperands: false
-BreakBeforeBinaryOperators: None
-PenaltyBreakFirstLessLess: 0
-
-# ---- Class access indentation ----
+IndentCaseLabels: true
+IndentPPDirectives: AfterHash
 IndentAccessModifiers: false
 AccessModifierOffset: 0
+IndentRequiresClause: false
 
-# ---- Pointer / reference formatting ----
-DerivePointerAlignment: false
-PointerAlignment: Left
-ReferenceAlignment: Left
+# Brace placement
+BreakBeforeBraces: Attach
 
-# Parameter wrapping + indentation:
-# - First parameter stays on same line as '(' when possible
-# - When it wraps, following params align under the first param
-AlignAfterOpenBracket: Align
-BinPackParameters: false
-
-# (Optional but usually consistent with the above for function calls too)
-BinPackArguments: false
-
+# Collapsing short constructs — nothing ever collapses to one line
 AllowShortFunctionsOnASingleLine: None
-AllowShortIfStatementsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortLambdasOnASingleLine: None
+AllowShortEnumsOnASingleLine: false
 
-# ---- Constructor initializer list formatting ----
-# Put ':' / ',' at the start of each line, and force one initializer per line
-BreakConstructorInitializers: BeforeComma
-ConstructorInitializerAllOnOneLineOrOnePerLine: true
-PackConstructorInitializers: Never
-
+# Line wrapping / column limit
 ColumnLimit: 100
+AlignAfterOpenBracket: Align
+BinPackParameters: false
+BinPackArguments: false
+BreakBeforeBinaryOperators: All
+AlwaysBreakAfterReturnType: None
+BreakConstructorInitializers: BeforeComma
+PackConstructorInitializers: Never
+AlwaysBreakTemplateDeclarations: Yes
+BreakInheritanceList: AfterColon
+PenaltyExcessCharacter: 1000000
+
+# Alignment
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignTrailingComments: false
+AlignOperands: Align
+AlignEscapedNewlines: Right
+
+# Pointers & references
+PointerAlignment: Left
+DerivePointerAlignment: false
+ReferenceAlignment: Left
+
+# Spacing
+SpaceBeforeParens: ControlStatements
+SpacesInParens: Never
+SpaceBeforeSquareBrackets: false
+SpacesInSquareBrackets: false
+SpacesInAngles: false
+SpaceBeforeAssignmentOperators: true
+SpacesBeforeTrailingComments: 1
+SpaceAfterTemplateKeyword: true
+SpaceAfterCStyleCast: true
+
+# Blank lines
+MaxEmptyLinesToKeep: 1
+EmptyLineBeforeAccessModifier: LogicalBlock
+EmptyLineAfterAccessModifier: Never
+KeepEmptyLinesAtEOF: false
+
+# Include ordering
+IncludeBlocks: Regroup
+SortIncludes: CaseInsensitive
+IncludeCategories:
+  - Regex:           '^<vendor/'
+    Priority:        3
+    SortPriority:    3
+  - Regex:           '^<'
+    Priority:        2
+    SortPriority:    2
+  - Regex:           '^"'
+    Priority:        4
+    SortPriority:    4
+
+# Comments
+ReflowComments: false
+
+# Namespace closing comments
+FixNamespaceComments: false
+
+# Const/pointer qualifier placement
+QualifierAlignment: Left
+
+# Braces on single-statement bodies
+InsertBraces: true
+
+# File-level
+LineEnding: LF
+InsertNewlineAtEOF: true

@@ -6,7 +6,7 @@ namespace impetus {
     namespace shared {
         /**
          * @brief
-         * Standard `std::size_t` that is 0.
+         * Neutral std::size_t value (zero). Used as a baseline for size comparisons.
          */
         constexpr std::size_t K_SIZE_T_NEUTRAL = 0;
     }

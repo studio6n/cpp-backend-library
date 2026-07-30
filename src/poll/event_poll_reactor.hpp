@@ -1,38 +1,38 @@
 #pragma once
 
-#include "event_poll_listener.hpp"
-#include "shared/shared_event_poll_helper.hpp"
-#include "shared/shared_kernel_helper.hpp"
-
 #include <atomic>
 #include <cstdint>
-#include <deque>
-#include <functional>
 #include <mutex>
-#include <thread>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
+
+#include "event_poll_flag.hpp"
+#include "i_event_poll_listener.hpp"
 
 namespace impetus {
     namespace poll {
         /**
          * @brief
-         * Reactor for dispatching epoll events to subscribers.
+         * Drives an epoll instance, dispatching I/O events to registered subscribers.
          *
-         * This class manages subscriber registration, lifecycle callbacks,
-         * and event dispatch for a single epoll instance.
+         * Thread-safe: attach(), detach(), and modify() may be called from any thread.
+         * run() must be called from the reactor's dedicated thread.
+         * Not copyable or movable — owns the epoll file descriptor.
          */
         class EventPollReactor final {
             public:
             /**
              * @brief
-             * Reactor must be constructed with a name suffix.
+             * Default construction is disabled — a name suffix is a hard requirement.
              */
             EventPollReactor() = delete;
 
             /**
              * @brief
              * Constructs a reactor with a name suffix.
+             * Subscription capacity defaults to K_EPOLL_SUBSCRIPTION_SIZE.
              *
              * @param suffix
              * Suffix appended to the reactor name.
@@ -45,115 +45,130 @@ namespace impetus {
              *
              * @param suffix
              * Suffix appended to the reactor name.
-             * @param subscription_size
-             * Reserved capacity for subscription containers.
+             *
+             * @param max_subscriptions
+             * Maximum number of concurrent subscriptions.
              */
-            explicit EventPollReactor(std::string_view suffix, std::size_t subscription_size);
+            explicit EventPollReactor(std::string_view suffix, std::size_t max_subscriptions);
+
+            /**
+             * @brief
+             * Closes the epoll file descriptor if open.
+             */
             ~EventPollReactor();
 
+            /**
+             * @brief
+             * Copy construction is disabled.
+             */
             EventPollReactor(const EventPollReactor&) = delete;
+
+            /**
+             * @brief
+             * Copy assignment is disabled.
+             */
             EventPollReactor& operator=(const EventPollReactor&) = delete;
+
+            /**
+             * @brief
+             * Move construction is disabled.
+             */
             EventPollReactor(EventPollReactor&&) = delete;
+
+            /**
+             * @brief
+             * Move assignment is disabled.
+             */
             EventPollReactor& operator=(EventPollReactor&&) = delete;
 
+            public:
             /**
              * @brief
              * Creates the epoll file descriptor and transitions the reactor to running state.
              *
              * @return
-             * TRUE if the reactor starts successfully, FALSE otherwise.
+             * True if the reactor started successfully, false otherwise.
              */
             [[nodiscard]]
             bool start();
 
             /**
              * @brief
-             * Runs one reactor iteration.
-             *
-             * This flushes pending attachments, flushes pending detach callbacks,
-             * and waits for epoll events when the reactor is running.
+             * Flushes all pending attach, modify, and detach requests in order,
+             * then waits for epoll events. Must be called from the reactor's dedicated thread.
              */
             void run();
 
             /**
              * @brief
-             * Requests the reactor to stop.
+             * Signals the reactor to stop on the next iteration.
              */
             void stop() noexcept;
 
             /**
              * @brief
-             * Attaches a subscriber.
+             * Queues a subscriber for attachment on the next reactor iteration. Thread-safe.
+             *
              * @param interest
-             * Under which epoll flag the subscriber needs to be in.
+             * Epoll interest flags for the subscriber.
+             *
              * @param listener
-             * The listener that manages the lifecycle of the subscriber.
+             * Listener that observes this subscriber's lifecycle.
+             *
              * @param subscriber
-             * The subscriber that you wish to attach to.
+             * Subscriber to attach.
+             *
+             * @return
+             * True if queued successfully. False if at capacity or duplicate fd.
              */
             [[nodiscard]]
-            bool attach(shared::EventPollFlag interest,
-                        EventPollListener* listener,
+            bool attach(EventPollFlag interest,
+                        IEventPollListener* listener,
                         EventPollSubscriber* subscriber);
 
             /**
              * @brief
-             * Queues a subscriber for attachment.
+             * Queues a subscriber for detachment on the next reactor iteration. Thread-safe.
+             *
+             * @param subscriber
+             * Subscriber to detach.
+             */
+            void detach(const EventPollSubscriber& subscriber);
+
+            /**
+             * @brief
+             * Queues an interest flag modification for the next reactor iteration. Thread-safe.
+             *
+             * @param fd
+             * File descriptor of the attached subscriber.
              *
              * @param interest
-             * Epoll interest flags for the subscriber.
-             * @param listener
-             * Listener that observes this subscriber's lifecycle.
-             * @param subscriber
-             * Subscriber to be attached.
-             *
-             * @return
-             * TRUE if the subscriber is queued successfully, FALSE otherwise.
+             * New epoll interest flags.
              */
-            [[nodiscard]]
-            bool modify(int fd, shared::EventPollFlag interest);
+            void modify(int fd, EventPollFlag interest);
 
             /**
              * @brief
-             * Queues a subscriber for detachment by subscriber reference.
-             *
-             * @param subscriber
-             * Subscriber to be detached.
-             *
-             * @return
-             * TRUE if detachment succeeds, FALSE otherwise.
+             * Returns true if the reactor is in running state.
              */
             [[nodiscard]]
-            bool detach(const EventPollSubscriber& subscriber) {
-                return detach_subscriber(subscriber.fd());
-            }
-
-            /**
-             * @brief
-             * Checks whether the reactor is running.
-             *
-             * @return
-             * TRUE if the reactor is in running state, FALSE otherwise.
-             */
-            inline bool in_running_state() const noexcept {
+            bool in_running_state() const noexcept {
                 return reactor_state_.load() == ReactorState::RUNNING;
             }
 
             /**
              * @brief
-             * Checks whether the reactor is in epoll error state.
-             *
-             * @return
-             * TRUE if the reactor failed to create its epoll fd, FALSE otherwise.
+             * Returns true if the reactor failed to create its epoll fd.
              */
-            inline bool in_error_state() const noexcept {
+            [[nodiscard]]
+            bool in_error_state() const noexcept {
                 return reactor_state_.load() == ReactorState::ERROR_EPOLL_FD;
             }
 
             private:
             /**
              * @brief
-             * States used by the reactor lifecycle.
+             * Lifecycle states of the reactor.
              */
             enum class ReactorState : std::uint8_t {
                 NOT_STARTED = 0,
@@ -165,26 +180,61 @@ namespace impetus {
 
             /**
              * @brief
-             * Pairing between epoll interest, listener, and subscriber.
+             * Groups the epoll interest flag, lifecycle listener, and subscriber
+             * into a single tracked entry.
              */
             struct Subscription {
-                impetus::shared::EventPollFlag flag = impetus::shared::EventPollFlag::NONE;
-                EventPollListener* listener = nullptr;
+                /**
+                 * @brief
+                 * Epoll interest flags for this subscription.
+                 */
+                EventPollFlag flag = EventPollFlag::NONE;
+
+                /**
+                 * @brief
+                 * Listener observing this subscriber's lifecycle. Non-owning.
+                 */
+                IEventPollListener* listener = nullptr;
+
+                /**
+                 * @brief
+                 * The subscriber itself. Non-owning.
+                 */
                 EventPollSubscriber* subscriber = nullptr;
             };
 
             /**
              * @brief
-             * Waits for epoll events and dispatches them.
+             * Carries a pending flag modification for an attached subscriber.
+             */
+            struct PendingModify {
+                /**
+                 * @brief
+                 * File descriptor of the attached subscriber to modify.
+                 */
+                int fd;
+
+                /**
+                 * @brief
+                 * New epoll interest flags to apply.
+                 */
+                EventPollFlag flag;
+            };
+
+            private:
+            /**
+             * @brief
+             * Blocks on epoll_wait and dispatches any returned events.
              */
             void wait_for_events();
 
             /**
              * @brief
-             * Dispatches epoll events to their corresponding subscribers.
+             * Routes each epoll event to the correct subscriber callback.
              *
              * @param events
-             * Array of epoll events returned by epoll_wait().
+             * Array of epoll events returned by epoll_wait.
+             *
              * @param count
              * Number of valid entries in the array.
              */
@@ -192,109 +242,130 @@ namespace impetus {
 
             /**
              * @brief
-             * Detaches a subscriber by file descriptor.
+             * Promotes all queued attach requests into active subscriptions.
              *
-             * @param fd
-             * Subscriber file descriptor.
+             * @param local
+             * Swapped-out pending attach vector, processed without holding the mutex.
+             */
+            void flush_attach_requests(std::vector<Subscription>& local);
+
+            /**
+             * @brief
+             * Applies all queued modify requests to active subscriptions.
              *
-             * @return
-             * TRUE if the subscriber is detached, FALSE otherwise.
+             * @param local
+             * Swapped-out pending modify vector, processed without holding the mutex.
              */
-            bool detach_subscriber(int fd);
+            void flush_modify_requests(std::vector<PendingModify>& local);
 
             /**
              * @brief
-             * Flushes all subscribers queued for attachment.
+             * Processes all queued detach requests, firing on_detaching() for each.
+             *
+             * @param local
+             * Swapped-out pending detach vector, processed without holding the mutex.
              */
-            void flush_attaching_subscriptions();
+            void flush_detach_requests(std::vector<int>& local);
 
             /**
              * @brief
-             * Flushes all subscribers queued for detach-complete callbacks.
+             * Fires on_detached() for all subscriptions that completed detachment.
              */
-            void flush_detaching_subscriptions();
+            void flush_detached_callbacks();
 
             /**
              * @brief
-             * Sets the reactor name from a suffix.
+             * Builds the reactor name from the given suffix.
              *
              * @param suffix
-             * Reactor suffix string.
+             * Suffix to append to the name prefix.
              *
              * @return
-             * TRUE if the name is assigned successfully, FALSE otherwise.
+             * True if the name was set successfully.
              */
             bool set_reactor_name(std::string_view suffix);
 
             /**
              * @brief
-             * Adds a file descriptor to epoll.
-             *
-             * @param fd
-             * File descriptor to add.
-             * @param events
-             * Native epoll events.
-             *
-             * @return
-             * TRUE if epoll_ctl succeeds, FALSE otherwise.
+             * Registers a file descriptor with epoll using EPOLL_CTL_ADD.
              */
             [[nodiscard]]
             bool epoll_add(int fd, std::uint32_t events) noexcept;
 
             /**
              * @brief
-             * Modifies a file descriptor already registered in epoll.
-             *
-             * @param fd
-             * File descriptor to modify.
-             * @param events
-             * Native epoll events.
-             *
-             * @return
-             * TRUE if epoll_ctl succeeds, FALSE otherwise.
+             * Updates a registered file descriptor's interest mask using EPOLL_CTL_MOD.
              */
             [[nodiscard]]
             bool epoll_mod(int fd, std::uint32_t events) noexcept;
 
             /**
              * @brief
-             * Removes a file descriptor from epoll.
-             *
-             * @param fd
-             * File descriptor to remove.
+             * Removes a file descriptor from epoll using EPOLL_CTL_DEL.
              */
             void epoll_del(int fd) noexcept;
 
             private:
             /**
              * @brief
-             * Reactor display name.
+             * Human-readable name for this reactor instance.
              */
-            char reactor_name_[16];
+            std::string reactor_name_;
 
             /**
              * @brief
-             * Active subscriptions keyed by subscriber file descriptor.
+             * Active subscriptions keyed by file descriptor. Reactor thread only.
              */
             std::unordered_map<int, Subscription> subscriptions_;
 
             /**
              * @brief
-             * Subscriptions waiting to be attached.
+             * Subscriptions queued for attachment. Protected by pending_mutex_.
              */
             std::vector<Subscription> pending_attach_subscriptions_;
 
             /**
              * @brief
-             * Subscriptions waiting for detach-complete callbacks.
+             * File descriptors queued for detachment. Protected by pending_mutex_.
+             */
+            std::vector<int> pending_detach_fds_;
+
+            /**
+             * @brief
+             * Pending flag modifications. Protected by pending_mutex_.
+             */
+            std::vector<PendingModify> pending_modify_entries_;
+
+            /**
+             * @brief
+             * Subscriptions waiting for their on_detached() callback to fire. Reactor thread only.
              */
             std::vector<Subscription> pending_detached_subscriptions_;
+
+            /**
+             * @brief
+             * Guards all three pending queues.
+             */
+            std::mutex pending_mutex_;
 
             /**
              * @brief
              * Current lifecycle state of the reactor.
              */
             std::atomic<ReactorState> reactor_state_;
+
+            /**
+             * @brief
+             * Number of active subscriptions. Updated by the reactor thread.
+             * Read by attach() under pending_mutex_ for capacity enforcement.
+             */
+            std::atomic<std::size_t> subscription_count_;
+
+            /**
+             * @brief
+             * Maximum number of concurrent subscriptions allowed.
+             */
+            std::size_t max_subscriptions_;
 
             /**
              * @brief
