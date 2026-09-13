@@ -3,9 +3,8 @@
 A lightweight C++20 backend framework for Linux, providing threading,
 event-driven network I/O, and logging.
 
-> Status: under active development. `network/` is designed but not yet
-> implemented. API is not yet stable — expect breaking changes between
-> commits.
+> Status: under active development. API is not yet stable — expect breaking
+> changes between commits. `network/` is IPv4 only.
 
 ## Requirements
 
@@ -212,7 +211,7 @@ if (buffer.append(data, 5) == BufferCode::OK) {
 | `src/log/` | `impetus::log` | `LOG` macro, `LogHub`, `ILogProducer`, `ILogConsumer`, `LogConsumer` |
 | `src/threads/` | `impetus::threads` | `IThreadRunnable`, `WorkerThread`, `ThreadPool` |
 | `src/poll/` | `impetus::poll` | `IEventPollListener`, `EventPollReactor`, `EventPollRegistry` |
-| `src/network/` | `impetus::network` | *(planned, not yet implemented)* |
+| `src/network/` | `impetus::network` | `TcpSocket`, `UdpSocket`, `TcpChannelListener`, `ITcpConnectorListener`, `IUdpListener` |
 
 Full dependency rules between modules are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
