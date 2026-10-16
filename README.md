@@ -148,7 +148,6 @@ worker.stop();
 ```cpp
 #include "poll/event_poll_registry.hpp"
 #include "poll/event_poll_subscriber.hpp"
-#include "poll/i_event_poll_listener.hpp"
 
 using namespace impetus::poll;
 
@@ -163,12 +162,9 @@ class MySocket : public EventPollSubscriber {
     void on_error() noexcept override {
         // fd hit an error or hangup
     }
-};
 
-class MyListener : public IEventPollListener {
-    public:
-    void on_detaching(EventPollSubscriber& subscriber) noexcept override {
-        // subscriber is about to be detached — release any state tied to it
+    void on_detached() noexcept override {
+        // the reactor has removed the fd and closed it
     }
 };
 
@@ -176,14 +172,18 @@ if (!EventPollRegistry::instance().init()) {
     // already initialised
 }
 
-MyListener listener;
-MySocket socket(fd);
+// The reactor keeps only a weak_ptr, so the subscriber must be shared-owned.
+auto socket = std::make_shared<MySocket>(fd);
 
-if (!EventPollRegistry::instance().attach("main", EventPollFlag::IN, &listener, &socket)) {
-    // reactor not found, or attach failed
+if (!EventPollRegistry::instance().attach("main", EventPollFlag::IN, socket)) {
+    // reactor not found, or attach failed — the fd is still yours to close
 }
 
 EventPollRegistry::instance().run(); // call in a loop — processes one round of events per call
+
+// Once attach() succeeded, never close the fd yourself: detach hands it back
+// and the reactor closes it on its next round. Detach before destroying.
+EventPollRegistry::instance().detach("main", *socket);
 ```
 
 #### SocketBuffer
@@ -210,7 +210,7 @@ if (buffer.append(data, 5) == BufferCode::OK) {
 | `src/buffer/` | `impetus::buffer` | Fixed-size byte buffer for I/O staging |
 | `src/log/` | `impetus::log` | `LOG` macro, `LogHub`, `ILogProducer`, `ILogConsumer`, `LogConsumer` |
 | `src/threads/` | `impetus::threads` | `IThreadRunnable`, `WorkerThread`, `ThreadPool` |
-| `src/poll/` | `impetus::poll` | `IEventPollListener`, `EventPollReactor`, `EventPollRegistry` |
+| `src/poll/` | `impetus::poll` | `EventPollSubscriber`, `EventPollReactor`, `EventPollRegistry` |
 | `src/network/` | `impetus::network` | `TcpSocket`, `UdpSocket`, `TcpChannelListener`, `ITcpConnectorListener`, `IUdpListener` |
 
 Full dependency rules between modules are in

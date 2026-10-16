@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -9,7 +10,7 @@
 #include <vector>
 
 #include "event_poll_flag.hpp"
-#include "i_event_poll_listener.hpp"
+#include "event_poll_subscriber.hpp"
 
 namespace impetus {
     namespace poll {
@@ -20,6 +21,10 @@ namespace impetus {
          * Thread-safe: attach(), detach(), and modify() may be called from any thread.
          * run() must be called from the reactor's dedicated thread.
          * Not copyable or movable — owns the epoll file descriptor.
+         *
+         * Holds subscribers by weak_ptr. Closes every file descriptor it accepted:
+         * on detach, after removing it, so the number cannot be reused while an
+         * entry still refers to it; or when the reactor is destroyed.
          */
         class EventPollReactor final {
             public:
@@ -53,7 +58,8 @@ namespace impetus {
 
             /**
              * @brief
-             * Closes the epoll file descriptor if open.
+             * Closes every file descriptor still attached or queued, then the epoll
+             * file descriptor.
              */
             ~EventPollReactor();
 
@@ -112,23 +118,21 @@ namespace impetus {
              * @param interest
              * Epoll interest flags for the subscriber.
              *
-             * @param listener
-             * Listener that observes this subscriber's lifecycle.
-             *
              * @param subscriber
-             * Subscriber to attach.
+             * Subscriber to attach. Must be owned by a std::shared_ptr.
              *
              * @return
-             * True if queued successfully. False if at capacity or duplicate fd.
+             * True if queued successfully; from then on this reactor closes the fd.
+             * False if the subscriber is gone, its fd is invalid, the reactor is at
+             * capacity, or the fd is already queued.
              */
             [[nodiscard]]
-            bool attach(EventPollFlag interest,
-                        IEventPollListener* listener,
-                        EventPollSubscriber* subscriber);
+            bool attach(EventPollFlag interest, std::weak_ptr<EventPollSubscriber> subscriber);
 
             /**
              * @brief
-             * Queues a subscriber for detachment on the next reactor iteration. Thread-safe.
+             * Hands the subscriber's file descriptor back for detachment on the next
+             * reactor iteration, which removes it and then closes it. Thread-safe.
              *
              * @param subscriber
              * Subscriber to detach.
@@ -180,10 +184,17 @@ namespace impetus {
 
             /**
              * @brief
-             * Groups the epoll interest flag, lifecycle listener, and subscriber
-             * into a single tracked entry.
+             * Groups the file descriptor, epoll interest flag and subscriber into a
+             * single tracked entry.
              */
             struct Subscription {
+                /**
+                 * @brief
+                 * File descriptor, recorded at attach() so the reactor never has to
+                 * ask a subscriber that may be gone.
+                 */
+                int fd = EventPollSubscriber::K_INVALID_FD;
+
                 /**
                  * @brief
                  * Epoll interest flags for this subscription.
@@ -192,15 +203,10 @@ namespace impetus {
 
                 /**
                  * @brief
-                 * Listener observing this subscriber's lifecycle. Non-owning.
+                 * The subscriber itself. Not owned — locked only for the length of
+                 * each callback.
                  */
-                IEventPollListener* listener = nullptr;
-
-                /**
-                 * @brief
-                 * The subscriber itself. Non-owning.
-                 */
-                EventPollSubscriber* subscriber = nullptr;
+                std::weak_ptr<EventPollSubscriber> subscriber;
             };
 
             /**
@@ -260,7 +266,9 @@ namespace impetus {
 
             /**
              * @brief
-             * Processes all queued detach requests, firing on_detaching() for each.
+             * Processes all queued detach requests, removing each file descriptor
+             * from epoll and the subscription table, closing it, and queueing its
+             * on_detached() callback.
              *
              * @param local
              * Swapped-out pending detach vector, processed without holding the mutex.
@@ -326,7 +334,8 @@ namespace impetus {
 
             /**
              * @brief
-             * File descriptors queued for detachment. Protected by pending_mutex_.
+             * File descriptors handed back for detachment and closing. Protected by
+             * pending_mutex_.
              */
             std::vector<int> pending_detach_fds_;
 

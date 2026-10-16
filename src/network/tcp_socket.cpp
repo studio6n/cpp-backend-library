@@ -43,12 +43,10 @@ namespace impetus {
                 return false;
             }
 
-            reactor_name_ = std::string(reactor_name);
             connector_listener_ = &listener;
             mode_ = Mode::LISTENING;
 
-            if (!poll::EventPollRegistry::instance().attach(
-                    reactor_name_, poll::EventPollFlag::IN, this, this)) {
+            if (!attach_to_reactor(reactor_name, poll::EventPollFlag::IN)) {
                 mode_ = Mode::NONE;
                 connector_listener_ = nullptr;
                 return false;
@@ -70,7 +68,6 @@ namespace impetus {
             address.sin_addr.s_addr = ip;
             address.sin_port = htons(port);
 
-            reactor_name_ = std::string(reactor_name);
             channel_listener_ = &listener;
             mode_ = Mode::CONNECTING;
 
@@ -86,11 +83,8 @@ namespace impetus {
                 mode_ = Mode::CONNECTED;
             }
 
-            if (!poll::EventPollRegistry::instance().attach(reactor_name_,
-                                                            poll::EventPollFlag::IN
-                                                                | poll::EventPollFlag::OUT,
-                                                            this,
-                                                            this)) {
+            if (!attach_to_reactor(reactor_name,
+                                   poll::EventPollFlag::IN | poll::EventPollFlag::OUT)) {
                 mode_ = Mode::NONE;
                 channel_listener_ = nullptr;
                 return false;
@@ -104,12 +98,10 @@ namespace impetus {
                 return false;
             }
 
-            reactor_name_ = std::string(reactor_name);
             channel_listener_ = &listener;
             mode_ = Mode::CONNECTED;
 
-            if (!poll::EventPollRegistry::instance().attach(
-                    reactor_name_, poll::EventPollFlag::IN, this, this)) {
+            if (!attach_to_reactor(reactor_name, poll::EventPollFlag::IN)) {
                 mode_ = Mode::NONE;
                 channel_listener_ = nullptr;
                 return false;
@@ -302,7 +294,7 @@ namespace impetus {
                 return;
             }
 
-            begin_shutdown(reactor_name_);
+            begin_shutdown();
 
             // Notify last — the listener may react by tearing down whatever
             // owns this socket, so nothing may touch members after this.
@@ -317,7 +309,7 @@ namespace impetus {
         }
 
         void TcpSocket::refresh_interest() noexcept {
-            if (!has_valid_fd() || reactor_name_.empty()) {
+            if (!has_valid_fd() || reactor_name().empty()) {
                 return;
             }
 
@@ -325,7 +317,7 @@ namespace impetus {
                 = write_buffer_.empty() ? poll::EventPollFlag::IN
                                         : (poll::EventPollFlag::IN | poll::EventPollFlag::OUT);
 
-            poll::EventPollRegistry::instance().modify(reactor_name_, fd(), interest);
+            poll::EventPollRegistry::instance().modify(reactor_name(), fd(), interest);
         }
     }
 }

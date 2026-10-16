@@ -6,7 +6,6 @@
 #include "../threads/worker_thread.hpp"
 #include "event_poll_reactor.hpp"
 #include "event_poll_subscriber.hpp"
-#include "i_event_poll_listener.hpp"
 
 namespace {
     constexpr const char* MAIN_REACTOR_KEY = "main";
@@ -189,8 +188,7 @@ namespace impetus {
 
         bool EventPollRegistry::attach(std::string_view reactor_name,
                                        EventPollFlag interest,
-                                       IEventPollListener* listener,
-                                       EventPollSubscriber* subscriber) {
+                                       std::weak_ptr<EventPollSubscriber> subscriber) {
             std::shared_ptr<EventPollReactor> reactor;
             {
                 std::lock_guard lock(mutex_);
@@ -201,7 +199,7 @@ namespace impetus {
                 reactor = it->second->reactor;
             }
 
-            return reactor->attach(interest, listener, subscriber);
+            return reactor->attach(interest, std::move(subscriber));
         }
 
         void EventPollRegistry::detach(std::string_view reactor_name,

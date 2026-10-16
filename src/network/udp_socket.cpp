@@ -4,7 +4,6 @@
 #include <netinet/in.h>
 
 #include "../poll/event_poll_flag.hpp"
-#include "../poll/event_poll_registry.hpp"
 #include "i_udp_listener.hpp"
 
 namespace impetus {
@@ -141,11 +140,9 @@ namespace impetus {
         }
 
         bool UdpSocket::attach(std::string_view reactor_name, IUdpListener& listener) {
-            reactor_name_ = std::string(reactor_name);
             listener_ = &listener;
 
-            if (!poll::EventPollRegistry::instance().attach(
-                    reactor_name_, poll::EventPollFlag::IN, this, this)) {
+            if (!attach_to_reactor(reactor_name, poll::EventPollFlag::IN)) {
                 listener_ = nullptr;
                 return false;
             }
@@ -158,7 +155,7 @@ namespace impetus {
                 return;
             }
 
-            begin_shutdown(reactor_name_);
+            begin_shutdown();
 
             // Notify last — the listener may react by tearing down whatever
             // owns this socket, so nothing may touch members after this.

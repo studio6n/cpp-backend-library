@@ -7,8 +7,13 @@ namespace impetus {
          * Abstract base class for all epoll reactor subscribers.
          *
          * A subscriber receives I/O callbacks from the reactor for its bound file
-         * descriptor. Lifetime is owned by the caller — the reactor holds a non-owning
-         * pointer.
+         * descriptor. It must be owned by a std::shared_ptr: the reactor holds only a
+         * weak_ptr, locked for the length of each callback, and calls nothing once the
+         * subscriber is gone.
+         *
+         * Once attach() has accepted the file descriptor, the reactor closes it, after
+         * removing it on detach (or when the reactor is destroyed). The subscriber must
+         * not close it itself, and must detach before it is destroyed.
          */
         class EventPollSubscriber {
             public:
@@ -90,7 +95,8 @@ namespace impetus {
 
             /**
              * @brief
-             * Called after the subscriber has been fully detached from the reactor.
+             * Called after the reactor has removed the file descriptor and closed it.
+             * Not called if the subscriber is already gone or the reactor is stopping.
              */
             virtual void on_detached() noexcept {
             }
@@ -116,7 +122,8 @@ namespace impetus {
 
             /**
              * @brief
-             * Marks the file descriptor as invalid. Call after closing it.
+             * Marks the file descriptor as invalid. Call after closing it, or after
+             * handing it to the reactor with detach().
              */
             void invalidate_fd() noexcept {
                 fd_ = K_INVALID_FD;

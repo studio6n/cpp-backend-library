@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <string>
 #include <string_view>
 
 #include "../buffer/buffer_utility.hpp"
@@ -25,6 +24,9 @@ namespace impetus {
          *
          * Final: extend behaviour through ITcpConnectorListener or
          * TcpChannelListener, not by subclassing this.
+         *
+         * Must be created with std::make_shared — listen(), connect() and
+         * attach() return false otherwise.
          */
         class TcpSocket final : public BaseSocket {
             public:
@@ -78,7 +80,8 @@ namespace impetus {
 
             /**
              * @brief
-             * Default destructor. The base class closes the fd.
+             * Default destructor. The base class shuts the socket down if
+             * close() was never called.
              */
             ~TcpSocket() override = default;
 
@@ -193,8 +196,9 @@ namespace impetus {
 
             /**
              * @brief
-             * Detaches, closes the fd, and notifies the listener. Idempotent.
-             * The object itself stays alive — its owner destroys it.
+             * Stops using the fd, hands it to the reactor to close, and
+             * notifies the listener. Idempotent. The object itself stays alive
+             * — its owner destroys it.
              */
             void close() noexcept;
 
@@ -272,12 +276,6 @@ namespace impetus {
             };
 
             private:
-            /**
-             * @brief
-             * Reactor this socket attached to, needed to detach on teardown.
-             */
-            std::string reactor_name_;
-
             /**
              * @brief
              * Non-owning. Set only in LISTENING mode.

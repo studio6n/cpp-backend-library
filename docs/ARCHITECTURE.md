@@ -13,7 +13,7 @@ Eight modules live under `src/`, each mapping to one `impetus::` sub-namespace:
 | `src/buffer/` | `impetus::buffer` | Fixed-size byte buffer for I/O staging |
 | `src/log/` | `impetus::log` | `LOG` macro, `LogHub`, `ILogProducer`, `ILogConsumer`, `LogConsumer` |
 | `src/threads/` | `impetus::threads` | `IThreadRunnable`, `WorkerThread`, `ThreadPool` |
-| `src/poll/` | `impetus::poll` | `EventPollRegistry` (Meyers singleton — centralised owner of all reactors), `EventPollReactor`, `EventPollSubscriber`, `IEventPollListener` |
+| `src/poll/` | `impetus::poll` | `EventPollRegistry` (Meyers singleton — centralised owner of all reactors), `EventPollReactor`, `EventPollSubscriber` |
 | `src/network/` | `impetus::network` | `BaseSocket`, `TcpSocket`, `UdpSocket`, `TcpChannelListener` (stateful — owns one connection), `ITcpConnectorListener`, `IUdpListener` |
 
 ### Dependency Rules

@@ -11,7 +11,6 @@
 
 namespace impetus {
     namespace poll {
-        class IEventPollListener;
         class EventPollSubscriber;
         class EventPollReactor;
     }
@@ -142,24 +141,23 @@ namespace impetus {
              * @param interest
              * Epoll interest flags.
              *
-             * @param listener
-             * Listener observing this subscriber's lifecycle.
-             *
              * @param subscriber
-             * Subscriber to attach.
+             * Subscriber to attach. Must be owned by a std::shared_ptr.
              *
              * @return
-             * True if queued successfully. False if reactor not found or attach fails.
+             * True if queued successfully; from then on the reactor closes the fd.
+             * False if reactor not found or attach fails.
              */
             [[nodiscard]]
             bool attach(std::string_view reactor_name,
                         EventPollFlag interest,
-                        IEventPollListener* listener,
-                        EventPollSubscriber* subscriber);
+                        std::weak_ptr<EventPollSubscriber> subscriber);
 
             /**
              * @brief
-             * Queues a subscriber for detachment from the named reactor.
+             * Hands the subscriber's file descriptor back to the named reactor,
+             * which removes it and then closes it. If the reactor no longer
+             * exists, it closed the fd when it was destroyed.
              *
              * @param reactor_name
              * Name of the target reactor.

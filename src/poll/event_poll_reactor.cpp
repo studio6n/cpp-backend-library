@@ -4,6 +4,7 @@
 #include <string>
 #include <sys/epoll.h>
 #include <unistd.h>
+#include <unordered_set>
 
 namespace {
     constexpr int K_EPOLL_MAX_EVENTS = 100;
@@ -38,6 +39,22 @@ namespace impetus {
         }
 
         EventPollReactor::~EventPollReactor() {
+            // Every fd accepted by attach() is this reactor's to close. Detached
+            // ones were closed already; close whatever is still attached or queued.
+            std::unordered_set<int> held;
+            for (const auto& [fd, sub] : subscriptions_) {
+                held.insert(fd);
+            }
+            for (const auto& sub : pending_attach_subscriptions_) {
+                held.insert(sub.fd);
+            }
+            for (const int fd : pending_detach_fds_) {
+                held.insert(fd);
+            }
+            for (const int fd : held) {
+                ::close(fd);
+            }
+
             if (epoll_fd_ >= 0) {
                 ::close(epoll_fd_);
                 epoll_fd_ = -1;
@@ -83,13 +100,13 @@ namespace impetus {
         }
 
         bool EventPollReactor::attach(EventPollFlag interest,
-                                      IEventPollListener* listener,
-                                      EventPollSubscriber* subscriber) {
-            if (!subscriber->has_valid_fd()) {
+                                      std::weak_ptr<EventPollSubscriber> subscriber) {
+            const std::shared_ptr<EventPollSubscriber> locked = subscriber.lock();
+            if (!locked || !locked->has_valid_fd()) {
                 return false;
             }
 
-            const int fd = subscriber->fd();
+            const int fd = locked->fd();
 
             std::lock_guard lock(pending_mutex_);
 
@@ -99,16 +116,21 @@ namespace impetus {
             }
 
             for (const auto& sub : pending_attach_subscriptions_) {
-                if (sub.subscriber->fd() == fd) {
+                if (sub.fd == fd) {
                     return false;
                 }
             }
 
-            pending_attach_subscriptions_.push_back(Subscription{interest, listener, subscriber});
+            pending_attach_subscriptions_.push_back(
+                Subscription{fd, interest, std::move(subscriber)});
             return true;
         }
 
         void EventPollReactor::detach(const EventPollSubscriber& subscriber) {
+            if (!subscriber.has_valid_fd()) {
+                return;
+            }
+
             std::lock_guard lock(pending_mutex_);
             pending_detach_fds_.push_back(subscriber.fd());
         }
@@ -146,7 +168,14 @@ namespace impetus {
                     continue;
                 }
 
-                EventPollSubscriber* subscriber = it->second.subscriber;
+                // Held for the length of the callbacks, so a subscriber released
+                // inside one of them is destroyed only after they return.
+                const std::shared_ptr<EventPollSubscriber> subscriber
+                    = it->second.subscriber.lock();
+                if (!subscriber) {
+                    continue;
+                }
+
                 if ((event & (EPOLLERR | EPOLLHUP)) != 0U) {
                     subscriber->on_error();
                     continue;
@@ -164,23 +193,28 @@ namespace impetus {
 
         void EventPollReactor::flush_attach_requests(std::vector<Subscription>& local) {
             for (auto& sub : local) {
-                if (sub.listener == nullptr || sub.subscriber == nullptr) {
+                // Gone before it was added: its shutdown has queued the detach,
+                // which closes the fd.
+                const std::shared_ptr<EventPollSubscriber> subscriber = sub.subscriber.lock();
+                if (!subscriber) {
                     continue;
                 }
 
-                const int fd = sub.subscriber->fd();
-                if (subscriptions_.contains(fd)) {
+                if (subscriptions_.contains(sub.fd)) {
                     continue;
                 }
 
                 const std::uint32_t event = to_epoll_native(sub.flag);
-                if (!epoll_add(fd, event)) {
+                if (!epoll_add(sub.fd, event)) {
+                    // The subscriber believes it is attached. Tell it, so its
+                    // shutdown hands the fd back and this reactor closes it.
+                    subscriber->on_error();
                     continue;
                 }
 
-                subscriptions_.try_emplace(fd, sub);
+                subscriptions_.try_emplace(sub.fd, sub);
                 subscription_count_.fetch_add(1, std::memory_order_relaxed);
-                sub.listener->on_attached(*sub.subscriber);
+                subscriber->on_attached();
             }
         }
 
@@ -203,21 +237,20 @@ namespace impetus {
         void EventPollReactor::flush_detach_requests(std::vector<int>& local) {
             for (const int fd : local) {
                 auto it = subscriptions_.find(fd);
-                if (it == subscriptions_.end()) {
-                    continue;
+                if (it != subscriptions_.end()) {
+                    Subscription sub = it->second;
+
+                    epoll_del(fd);
+                    subscriptions_.erase(it);
+                    subscription_count_.fetch_sub(1, std::memory_order_relaxed);
+
+                    pending_detached_subscriptions_.push_back(sub);
                 }
 
-                Subscription sub = it->second;
-
-                if (sub.listener && sub.subscriber) {
-                    sub.listener->on_detaching(*sub.subscriber);
-                }
-
-                epoll_del(fd);
-                subscriptions_.erase(it);
-                subscription_count_.fetch_sub(1, std::memory_order_relaxed);
-
-                pending_detached_subscriptions_.push_back(sub);
+                // Closed only now that no entry refers to it. Until this point the
+                // number stays taken, so the kernel cannot hand it to a new
+                // connection while this reactor still tracks the old one.
+                ::close(fd);
             }
         }
 
@@ -231,8 +264,8 @@ namespace impetus {
             local.swap(pending_detached_subscriptions_);
 
             for (auto& sub : local) {
-                if (sub.listener && sub.subscriber) {
-                    sub.listener->on_detached(*sub.subscriber);
+                if (const std::shared_ptr<EventPollSubscriber> subscriber = sub.subscriber.lock()) {
+                    subscriber->on_detached();
                 }
             }
         }

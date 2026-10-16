@@ -28,10 +28,12 @@ namespace impetus {
          * Subclasses implement on_data(); the rest are optional hooks.
          *
          * Lifetime note: closing the connection (close(), a peer disconnect,
-         * or an error) does not destroy this object or the socket it owns —
-         * the fd is closed and detached, but both objects stay alive until
-         * the owner destroys them. Destroying a TcpChannelListener from
-         * inside one of its own callbacks is undefined; defer it instead.
+         * or an error) does not destroy this object — the fd is handed to the
+         * reactor, which detaches and closes it, but this object stays alive
+         * until the owner destroys it. Destroying it once the connection is
+         * closed is safe at any time, including from inside on_closed().
+         * Destroying it while the connection is still open is an error: it is
+         * logged and the connection is closed first.
          */
         class TcpChannelListener {
             public:
@@ -61,7 +63,8 @@ namespace impetus {
 
             /**
              * @brief
-             * Destroys the owned socket, which closes its fd.
+             * Closes the connection if it is still open (an error, logged),
+             * then releases the socket.
              */
             virtual ~TcpChannelListener();
 
@@ -166,8 +169,8 @@ namespace impetus {
             /**
              * @brief
              * Closes the connection. Fires on_closed(). Safe to call from
-             * within a callback — the owned socket object survives until this
-             * handler is destroyed.
+             * within a callback, and this handler may be destroyed right
+             * after, including from inside on_closed().
              */
             void close() noexcept;
 
@@ -232,9 +235,10 @@ namespace impetus {
             /**
              * @brief
              * The connection this handler owns. Null until adopt() or
-             * connect() succeeds.
+             * connect() succeeds. Shared because the reactor keeps it alive
+             * for the length of each callback.
              */
-            std::unique_ptr<TcpSocket> socket_;
+            std::shared_ptr<TcpSocket> socket_;
         };
     }
 }

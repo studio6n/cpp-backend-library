@@ -3,7 +3,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include "../log/logger.hpp"
 #include "../poll/event_poll_registry.hpp"
+#include "../shared/constants.hpp"
 
 namespace impetus {
     namespace network {
@@ -19,13 +21,36 @@ namespace impetus {
         }
 
         BaseSocket::~BaseSocket() {
-            if (has_valid_fd()) {
-                ::close(fd());
-                invalidate_fd();
+            if (!closing_ && !reactor_name_.empty()) {
+                LOG(shared::CORE_LOG_PRODUCER,
+                    log::LogLevel::ERROR,
+                    "network",
+                    "socket destroyed while attached, without close(); shutting it down");
             }
+
+            begin_shutdown();
         }
 
-        void BaseSocket::begin_shutdown(std::string_view reactor_name) noexcept {
+        bool BaseSocket::attach_to_reactor(std::string_view reactor_name,
+                                           poll::EventPollFlag interest) {
+            if (closing_ || !reactor_name_.empty() || !has_valid_fd()) {
+                return false;
+            }
+
+            // Recorded before the attach: once queued, the reactor thread can
+            // call back into this socket, and those callbacks read reactor_name_.
+            reactor_name_ = std::string(reactor_name);
+
+            if (!poll::EventPollRegistry::instance().attach(
+                    reactor_name_, interest, weak_from_this())) {
+                reactor_name_.clear();
+                return false;
+            }
+
+            return true;
+        }
+
+        void BaseSocket::begin_shutdown() noexcept {
             if (closing_) {
                 return;
             }
@@ -36,13 +61,16 @@ namespace impetus {
                 return;
             }
 
-            if (!reactor_name.empty()) {
-                // Must run before invalidate_fd() — detach() reads fd() to
-                // locate its entry in the reactor.
-                poll::EventPollRegistry::instance().detach(reactor_name, *this);
+            if (reactor_name_.empty()) {
+                // No reactor ever accepted this fd, so nothing else knows the number.
+                ::close(fd());
+            } else {
+                // The reactor closes the fd after removing it; closing it here
+                // would free the number while the reactor still has an entry for
+                // it. Must run before invalidate_fd() — detach() reads fd().
+                poll::EventPollRegistry::instance().detach(reactor_name_, *this);
             }
 
-            ::close(fd());
             invalidate_fd();
         }
     }

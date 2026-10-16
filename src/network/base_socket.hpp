@@ -1,10 +1,12 @@
 #pragma once
 
+#include <memory>
+#include <string>
 #include <string_view>
 
 #include "../buffer/socket_buffer.hpp"
+#include "../poll/event_poll_flag.hpp"
 #include "../poll/event_poll_subscriber.hpp"
-#include "../poll/i_event_poll_listener.hpp"
 
 namespace impetus {
     namespace network {
@@ -30,20 +32,22 @@ namespace impetus {
          * @brief
          * Shared file descriptor ownership for every socket role.
          *
-         * Owns the fd and closes it on destruction. Forces the fd into
-         * non-blocking mode at construction — every read and write path in
-         * this module assumes that and relies on EAGAIN to terminate loops.
+         * Owns the fd until a reactor accepts it; from then on the reactor
+         * closes it, after removing it. Forces the fd into non-blocking mode
+         * at construction — every read and write path in this module assumes
+         * that and relies on EAGAIN to terminate loops.
          *
-         * Deliberately thin: no buffers, no protocol behaviour, no knowledge
-         * of which reactor anything is attached to. Not directly usable —
-         * on_error() remains pure virtual, inherited from EventPollSubscriber.
+         * Must be owned by a std::shared_ptr (std::make_shared): the reactor
+         * keeps only a weak_ptr to it, taken with weak_from_this(). A socket
+         * owned any other way cannot attach.
          *
-         * Also serves as its own IEventPollListener. The reactor requires a
-         * non-null listener for every subscription — it silently drops any
-         * attach whose listener is null — and a socket has no separate
-         * lifecycle observer to supply, so it fills that role itself.
+         * Deliberately thin: no buffers, no protocol behaviour. Not directly
+         * usable — on_error() remains pure virtual, inherited from
+         * EventPollSubscriber.
          */
-        class BaseSocket : public poll::EventPollSubscriber, public poll::IEventPollListener {
+        class BaseSocket :
+            public poll::EventPollSubscriber,
+            public std::enable_shared_from_this<BaseSocket> {
             public:
             /**
              * @brief
@@ -77,23 +81,10 @@ namespace impetus {
 
             /**
              * @brief
-             * Closes the owned file descriptor if it is still open.
+             * Shuts the socket down if that has not happened yet. Destroying an
+             * attached socket without close() is an error and is logged.
              */
             ~BaseSocket() override;
-
-            public:
-            /**
-             * @brief
-             * Required by IEventPollListener. A socket manages its own
-             * teardown through begin_shutdown(), so there is nothing extra to
-             * do when the reactor detaches it.
-             *
-             * @param subscriber
-             * The subscriber being detached — always this socket.
-             */
-            void on_detaching(poll::EventPollSubscriber& subscriber) noexcept override {
-                (void) subscriber;
-            }
 
             protected:
             /**
@@ -109,20 +100,46 @@ namespace impetus {
             protected:
             /**
              * @brief
-             * Detaches from EventPollRegistry::instance() and closes the fd.
+             * Attaches this socket to the named reactor through
+             * EventPollRegistry::instance(). Once this returns true the reactor
+             * owns closing the fd.
              *
-             * Ordering matters: detach() reads fd() internally to find its
-             * entry, so invalidate_fd() must come after it, never before.
+             * @param reactor_name
+             * Reactor to attach to.
+             *
+             * @param interest
+             * Epoll interest flags.
+             *
+             * @return
+             * True if the reactor accepted the fd. False if this socket is not
+             * owned by a std::shared_ptr, is already attached or closing, or the
+             * reactor was not found or refused it.
+             */
+            [[nodiscard]]
+            bool attach_to_reactor(std::string_view reactor_name, poll::EventPollFlag interest);
+
+            /**
+             * @brief
+             * Returns the name of the reactor that accepted the fd, or an empty
+             * string if none did.
+             */
+            [[nodiscard]]
+            const std::string& reactor_name() const noexcept {
+                return reactor_name_;
+            }
+
+            /**
+             * @brief
+             * Stops using the fd. If a reactor accepted it, hands it back with
+             * detach() and the reactor closes it once it has removed it, so the
+             * number stays taken until no reactor entry refers to it. If no
+             * reactor ever accepted it, closes it here.
              *
              * Idempotent — a second call is a no-op, which is what makes it
              * safe to call from on_error() even if on_error() fires more than
              * once before the object is actually destroyed.
-             *
-             * @param reactor_name
-             * Reactor to detach from. Not stored by this class — the derived
-             * socket owns that, since only it knows where it was attached.
              */
-            void begin_shutdown(std::string_view reactor_name) noexcept;
+            void begin_shutdown() noexcept;
 
             /**
              * @brief
@@ -134,6 +151,13 @@ namespace impetus {
             }
 
             private:
+            /**
+             * @brief
+             * Reactor that accepted the fd. Empty until attach_to_reactor()
+             * succeeds; from then on that reactor closes the fd.
+             */
+            std::string reactor_name_;
+
             /**
              * @brief
              * Set by begin_shutdown(). Guards against tearing down twice.
