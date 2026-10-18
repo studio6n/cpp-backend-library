@@ -71,16 +71,17 @@ namespace impetus {
             channel_listener_ = &listener;
             mode_ = Mode::CONNECTING;
 
-            if (::connect(fd(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)) < 0) {
-                // The fd is non-blocking, so the handshake almost always
-                // reports EINPROGRESS and completes later via EPOLLOUT.
-                if (errno != EINPROGRESS) {
-                    mode_ = Mode::NONE;
-                    channel_listener_ = nullptr;
-                    return false;
-                }
-            } else {
-                mode_ = Mode::CONNECTED;
+            // A non-blocking connect() usually reports EINPROGRESS, but POSIX
+            // also allows it to succeed immediately. Both stay CONNECTING:
+            // on_connected() fires only from finish_connect(), so promoting to
+            // CONNECTED here would mean it never fires. Attaching with OUT
+            // makes the next reactor cycle report the socket writable either
+            // way, and finish_connect() confirms the outcome through one path.
+            if (::connect(fd(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)) < 0
+                && errno != EINPROGRESS) {
+                mode_ = Mode::NONE;
+                channel_listener_ = nullptr;
+                return false;
             }
 
             if (!attach_to_reactor(reactor_name,

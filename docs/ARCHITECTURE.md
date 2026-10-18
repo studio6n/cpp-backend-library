@@ -4,7 +4,7 @@
 
 ### Modules
 
-Eight modules live under `src/`, each mapping to one `impetus::` sub-namespace:
+Seven modules live under `src/`, each mapping to one `impetus::` sub-namespace:
 
 | Folder | Namespace | Responsibility |
 |--------|-----------|----------------|
@@ -36,3 +36,12 @@ and `dispatch/` (`ILogProducer`/`ILogConsumer` are thin wrappers over `IProducer
 `IConsumer<LogEntry>`).
 
 Lower-level modules are **never** aware of higher-level ones. A violation of this rule is a hard architectural error.
+
+### Sandbox
+
+`src/sandbox/` holds `main.cpp`, an executable for manual testing and diagnostics. It is
+**not** a module: it has no `impetus::` namespace and is excluded from `libimpetus.a`.
+
+It sits where user code sits in the chain above — it may depend on any module, and no module
+may depend on it. It is built only on request, with `make <variant> BINARY=1`, linked against
+that variant's library so it always carries the same sanitizer flags as the code under test.

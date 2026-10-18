@@ -1,4 +1,4 @@
-# Makefile for impetus — see tmp/makefile-plan.md for full design rationale.
+# Makefile for impetus.
 #
 # Five build variants, each a fully isolated subtree under build/<variant>/:
 #   dev-memory   - ASan + UBSan, -O0, -g   (fast iteration, memory bugs)
@@ -19,6 +19,10 @@
 # NOT part of any single variant's build/<variant>/ subtree or clean cycle.
 # Only lib/libimpetus.a differs between variants (compiled from the same
 # .cpp files with different flags).
+#
+# Pass BINARY=1 with any variant target (or `all`) to also build
+# build/<variant>/bin/sandbox from src/sandbox/main.cpp, linked against that
+# variant's library. Nothing in this Makefile runs it — testing is manual.
 #
 # No incremental builds: every variant target always cleans its own build
 # directory first, then rebuilds from scratch. No make -j support.
@@ -50,10 +54,9 @@ PROD_FLAGS         := -O2 $(FRAMEPTR)
 
 VARIANTS := dev-memory dev-thread alpha-memory alpha-thread prod
 
-.PHONY: help all clean install test format lint \
+.PHONY: help all clean install format lint \
         dev-memory dev-thread alpha-memory alpha-thread prod \
-        clean-dev-memory clean-dev-thread clean-alpha-memory clean-alpha-thread clean-prod \
-        test-dev-memory test-dev-thread test-alpha-memory test-alpha-thread test-prod
+        clean-dev-memory clean-dev-thread clean-alpha-memory clean-alpha-thread clean-prod
 
 # ---- Default target: usage only, builds nothing ----
 help:
@@ -66,9 +69,11 @@ help:
 	@echo "  make all           build all 5 variants"
 	@echo "  make clean         remove all build artifacts"
 	@echo "  make install       (not supported)"
-	@echo "  make test          build all 5 variants, run sandbox against each"
 	@echo "  make format        reformat all src/ files with clang-format"
 	@echo "  make lint          run clang-tidy + cppcheck (fatal on any finding)"
+	@echo ""
+	@echo "  Append BINARY=1 to any variant (or all) to also build"
+	@echo "  build/<variant>/bin/sandbox from src/sandbox/main.cpp."
 
 # =============================================================================
 # Per-variant object/archive pattern rules
@@ -91,15 +96,12 @@ build/$(1)/lib/libimpetus.a: $$(patsubst src/%.cpp,build/$(1)/src/%.o,$$(LIB_SOU
 clean-$(1):
 	rm -rf $(BUILD_DIR)/$(1)
 
-$(1): clean-$(1) build/$(1)/lib/libimpetus.a build/include
+$(1): clean-$(1) build/$(1)/lib/libimpetus.a build/include $$(if $$(filter 1,$$(BINARY)),build/$(1)/bin/sandbox)
 
 build/$(1)/bin/sandbox: $$(SANDBOX_SOURCE) build/$(1)/lib/libimpetus.a
 	@mkdir -p $$(dir $$@)
 	$(CXX) $(STD) $(INCLUDES) $(THREADFLAGS) $(WARNFLAGS) $(2) $$< \
 	    -L build/$(1)/lib -limpetus -o $$@
-
-test-$(1): $(1) build/$(1)/bin/sandbox
-	./build/$(1)/bin/sandbox
 endef
 
 $(eval $(call VARIANT_RULES,dev-memory,$(DEV_MEMORY_FLAGS)))
@@ -130,8 +132,6 @@ clean:
 
 install:
 	@echo "This is currently not supported"
-
-test: test-dev-memory test-dev-thread test-alpha-memory test-alpha-thread test-prod
 
 # =============================================================================
 # Tooling

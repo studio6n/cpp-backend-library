@@ -38,10 +38,13 @@ Optional, for development:
 - `make clean` — removes the entire `build/` directory (every variant,
   plus the shared `build/include/`).
 - `make install` — not supported. Prints a message saying so.
-- `make test` — **not ready yet.** The target exists in the Makefile and is
-  meant to build all five variants and run a sandbox program against each,
-  but the sandbox source it depends on (`src/sandbox/main.cpp`) hasn't been
-  written yet, so `make test` currently fails.
+- `make <variant> BINARY=1` — also builds `build/<variant>/bin/sandbox` from
+  `src/sandbox/main.cpp`, linked against that variant's `libimpetus.a`, for
+  manual testing and diagnostics. Works with `make all` too. Nothing runs
+  automatically — you run the binary yourself. TSan builds (`dev-thread`,
+  `alpha-thread`) must run with address randomization off, or GCC 13's
+  ThreadSanitizer fails to start on most runs:
+  `setarch $(uname -m) -R ./build/dev-thread/bin/sandbox`
 - `make format` — reformats every `.cpp`/`.hpp` under `src/` in place with
   `clang-format`, using the `.clang-format` config at the project root.
 - `make lint` — runs `clang-tidy` and `cppcheck` against everything under
